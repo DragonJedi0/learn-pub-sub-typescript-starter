@@ -1,4 +1,10 @@
+import amqp from "amqplib";
 import type { ConfirmChannel } from "amqplib";
+
+export enum SimpleQueueType{
+    Durable,
+    Transient,
+}
 
 export async function publishJSON<T>(
     ch: ConfirmChannel,
@@ -22,4 +28,30 @@ export async function publishJSON<T>(
             }
         )
     });
+}
+
+export async function declareAndBind(
+    conn: amqp.ChannelModel,
+    exchange: string,
+    queueName: string,
+    key: string,
+    queueType: SimpleQueueType,
+): Promise<[amqp.Channel, amqp.Replies.AssertQueue]> {
+    const newConn = await conn.createChannel();
+
+    const durable = queueType == SimpleQueueType.Durable ? true : false;
+    const autoDelete = queueType == SimpleQueueType.Transient ? true : false;
+    const exclusive = queueType == SimpleQueueType.Transient ? true : false;
+
+    const queueOptions = {
+        exclusive: exclusive,
+        durable: durable,
+        autoDelete: autoDelete
+    };
+    
+    const queue = await newConn.assertQueue(queueName, queueOptions);
+
+    await newConn.bindQueue(queueName, exchange, key, queue);
+
+    return [newConn, queue];
 }

@@ -1,6 +1,7 @@
 import amqp from "amqplib";
 import { publishJSON } from "../internal/pubsub/pubsub.js";
 import { ExchangePerilDirect, PauseKey } from "../internal/routing/routing.js";
+import { getInput, printServerHelp } from "../internal/gamelogic/gamelogic.js";
 
 async function main() {
   console.log("Starting Peril server...");
@@ -9,10 +10,29 @@ async function main() {
   const conn = await amqp.connect(rabbitUrl);
   console.log("Connection successful.");
 
+  printServerHelp();
   const confirm = await conn.createConfirmChannel();
-
-  await publishJSON(confirm, ExchangePerilDirect, PauseKey, { isPaused: true });
-
+  
+  while(true){
+    const input = await getInput("Enter command: ");
+    if(input.length != 0){
+      if(input[0] == "pause"){
+        console.log("Pausing game...");
+        await publishJSON(confirm, ExchangePerilDirect, PauseKey, { isPaused: true });
+      } else if(input[0] == "resume"){
+        console.log("Resuming game...");
+        await publishJSON(confirm, ExchangePerilDirect, PauseKey, { isPaused: false });
+      } else if(input[0] == "quit"){
+        console.log("Ending game...");
+        break;
+      } else if(input[0] == "help"){
+        printServerHelp();
+      } else {
+        console.log("Not a valid command");
+      }
+    }
+  }
+  
   process.on('exit', () => {
     console.log("\nExit signal detected.\nShutting down server...");
     conn.close();
