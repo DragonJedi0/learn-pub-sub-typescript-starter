@@ -1,6 +1,6 @@
 import amqp from "amqplib";
-import { publishJSON } from "../internal/pubsub/pubsub.js";
-import { ExchangePerilDirect, PauseKey } from "../internal/routing/routing.js";
+import { declareAndBind, publishJSON, SimpleQueueType } from "../internal/pubsub/pubsub.js";
+import { ExchangePerilDirect, ExchangePerilTopic, GameLogSlug, PauseKey } from "../internal/routing/routing.js";
 import { getInput, printServerHelp } from "../internal/gamelogic/gamelogic.js";
 
 async function main() {
@@ -12,7 +12,9 @@ async function main() {
 
   printServerHelp();
   const confirm = await conn.createConfirmChannel();
-  
+
+  await declareAndBind(conn, ExchangePerilTopic, "game_logs", GameLogSlug, SimpleQueueType.Durable);
+
   while(true){
     const input = await getInput("Enter command: ");
     if(input.length != 0){
