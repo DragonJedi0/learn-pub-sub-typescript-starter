@@ -1,5 +1,6 @@
 import amqp from "amqplib";
 import type { ConfirmChannel } from "amqplib";
+import type { GameState, PlayingState } from "../gamelogic/gamestate.js";
 
 export enum SimpleQueueType{
     Durable,
@@ -54,4 +55,21 @@ export async function declareAndBind(
     await newConn.bindQueue(queueName, exchange, key, queue);
 
     return [newConn, queue];
+}
+
+export async function subscribeJSON<T>(
+    conn: amqp.ChannelModel,
+    exchange: string,
+    queueName: string,
+    key: string,
+    queueType: SimpleQueueType,
+    handler: (data: T) => void,
+): Promise<void> {
+    const [channel, queue] = await declareAndBind(conn, exchange, queueName, key, queueType);
+    channel.consume(queue.queue, (message) => {
+        if(!message) return;
+        const parseMessage = JSON.parse(message.content.toString());
+        handler(parseMessage);
+        channel.ack(message)
+    });
 }
