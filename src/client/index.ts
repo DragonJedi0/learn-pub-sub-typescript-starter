@@ -1,11 +1,11 @@
 import amqp from "amqplib";
 import { clientWelcome, commandStatus, getInput, printClientHelp, printQuit } from "../internal/gamelogic/gamelogic.js";
-import { declareAndBind, SimpleQueueType, subscribeJSON } from "../internal/pubsub/pubsub.js";
-import { ExchangePerilDirect, PauseKey } from "../internal/routing/routing.js";
+import { declareAndBind, publishJSON, SimpleQueueType, subscribeJSON } from "../internal/pubsub/pubsub.js";
+import { ArmyMovesPrefix, ExchangePerilDirect, ExchangePerilTopic, PauseKey } from "../internal/routing/routing.js";
 import { GameState } from "../internal/gamelogic/gamestate.js";
 import { commandSpawn } from "../internal/gamelogic/spawn.js";
 import { commandMove } from "../internal/gamelogic/move.js";
-import { handlerPause } from "./handlers.js";
+import { handlerMove, handlerPause } from "./handlers.js";
 
 async function main() {
   console.log("Starting Peril client...");
@@ -13,17 +13,18 @@ async function main() {
   
   const conn = await amqp.connect(rabbitUrl);
   console.log("Connection successful.");
+  
+  const confirmChannel = await conn.createConfirmChannel();
 
   const username = await clientWelcome();
-
-  await declareAndBind(conn, ExchangePerilDirect, `pause.${username}`, PauseKey, SimpleQueueType.Transient);
 
   const state = new GameState(username);
 
   await subscribeJSON(conn, ExchangePerilDirect, `pause.${username}`, PauseKey, SimpleQueueType.Transient, handlerPause(state));
+  await subscribeJSON(conn, ExchangePerilTopic, `${ArmyMovesPrefix}.${username}`, `${ArmyMovesPrefix}.*`, SimpleQueueType.Transient, handlerMove(state));
 
   while(true){
-    const input = await getInput("Enter command: ");
+    const input = await getInput();
     if(input.length != 0){
       if(input[0] == "spawn"){
         console.log(`Spawning ${input[2]} in ${input[1]}...`);
@@ -33,9 +34,11 @@ async function main() {
           console.log((err as Error).message);
         }
       } else if(input[0] == "move"){
-        console.log(`Moving unit ${input[2]} to ${input[1]}...`);
+        console.log(`Moving unit(s) to ${input[1]}...`);
         try{
-          commandMove(state, input);
+          const army_move = commandMove(state, input);
+          await publishJSON(confirmChannel, ExchangePerilTopic, `${ArmyMovesPrefix}.${username}`, army_move);
+          console.log("Move published successfully");
         } catch(err){
           console.log((err as Error).message);
         }

@@ -16,7 +16,7 @@ async function main() {
   await declareAndBind(conn, ExchangePerilTopic, "game_logs", GameLogSlug, SimpleQueueType.Durable);
 
   while(true){
-    const input = await getInput("Enter command: ");
+    const input = await getInput();
     if(input.length != 0){
       if(input[0] == "pause"){
         console.log("Pausing game...");
@@ -26,7 +26,15 @@ async function main() {
         await publishJSON(confirm, ExchangePerilDirect, PauseKey, { isPaused: false });
       } else if(input[0] == "quit"){
         console.log("Ending game...");
-        break;
+        console.log("\nExit signal detected.\nShutting down server...");
+        try {
+          conn.close();
+        } catch(err){
+          console.log((err as Error).message);
+          process.exit(1);
+        }
+        console.log("Sever safely shut down.");
+        process.exit(0);
       } else if(input[0] == "help"){
         printServerHelp();
       } else {
@@ -34,12 +42,6 @@ async function main() {
       }
     }
   }
-  
-  process.on('exit', () => {
-    console.log("\nExit signal detected.\nShutting down server...");
-    conn.close();
-    console.log("Sever safely shut down.");
-  });
 
 }
 
