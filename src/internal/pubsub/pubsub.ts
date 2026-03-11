@@ -71,13 +71,13 @@ export async function subscribeJSON<T>(
     queueName: string,
     key: string,
     queueType: SimpleQueueType,
-    handler: (data: T) => AckType,
+    handler: (data: T) => Promise<AckType> | AckType,
 ): Promise<void> {
     const [channel, queue] = await declareAndBind(conn, exchange, queueName, key, queueType);
-    channel.consume(queue.queue, (message) => {
+    channel.consume(queue.queue, async (message) => {
         if(!message) return;
         const parseMessage = JSON.parse(message.content.toString());
-        const ackType = handler(parseMessage);
+        const ackType = await handler(parseMessage);
         switch(ackType){
             case AckType.Ack:
                 console.log("Message Acknowledge");
