@@ -1,10 +1,15 @@
 import amqp from "amqplib";
 import type { ConfirmChannel } from "amqplib";
-import type { GameState, PlayingState } from "../gamelogic/gamestate.js";
 
 export enum SimpleQueueType{
     Durable,
     Transient,
+}
+
+export enum AckType {
+    Ack,
+    NackRequeue,
+    NackDiscard,
 }
 
 export async function publishJSON<T>(
@@ -47,7 +52,10 @@ export async function declareAndBind(
     const queueOptions = {
         exclusive: exclusive,
         durable: durable,
-        autoDelete: autoDelete
+        autoDelete: autoDelete,
+        arguments: {
+            "x-dead-letter-exchange": "peril_dlx",
+        }
     };
     
     const queue = await newConn.assertQueue(queueName, queueOptions);
@@ -63,13 +71,26 @@ export async function subscribeJSON<T>(
     queueName: string,
     key: string,
     queueType: SimpleQueueType,
-    handler: (data: T) => void,
+    handler: (data: T) => AckType,
 ): Promise<void> {
     const [channel, queue] = await declareAndBind(conn, exchange, queueName, key, queueType);
     channel.consume(queue.queue, (message) => {
         if(!message) return;
         const parseMessage = JSON.parse(message.content.toString());
-        handler(parseMessage);
-        channel.ack(message)
+        const ackType = handler(parseMessage);
+        switch(ackType){
+            case AckType.Ack:
+                console.log("Message Acknowledge");
+                channel.ack(message);
+                break;
+            case AckType.NackRequeue:
+                console.log("Message Not Acknowledge; Requeueing");
+                channel.nack(message, false, true);
+                break;
+            case AckType.NackDiscard:
+                console.log("Message Not Acknowledge; Discarding");
+                channel.nack(message, false, false);
+                break;
+        }
     });
 }
