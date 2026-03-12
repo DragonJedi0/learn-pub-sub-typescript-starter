@@ -1,3 +1,4 @@
+import { decode, encode } from "@msgpack/msgpack";
 import amqp from "amqplib";
 import type { ConfirmChannel } from "amqplib";
 
@@ -26,13 +27,32 @@ export async function publishJSON<T>(
             content,
             { contentType: "application/json" },
             (err) => {
-                if(err){
-                    reject(err);
+                if(err !== null){
+                    reject(new Error("Message was NACKed by the broker"));
                 } else {
                     resolve();
                 }
-            }
-        )
+            },
+        );
+    });
+}
+
+export function publishMsgPack<T>(ch: ConfirmChannel, exchange: string, routingKey: string, value: T): Promise<void> {
+    const content = Buffer.from(encode(value));
+    return new Promise((resolve, reject) => {
+        ch.publish(
+            exchange,
+            routingKey,
+            content,
+            { contentType: "application/x-msgpack" },
+            (err) => {
+                if(err !== null){
+                    reject(new Error("Message was NACKed by the broker"));
+                } else {
+                    resolve();
+                }
+            },
+        );
     });
 }
 
@@ -60,7 +80,7 @@ export async function declareAndBind(
     
     const queue = await newConn.assertQueue(queueName, queueOptions);
 
-    await newConn.bindQueue(queueName, exchange, key, queue);
+    await newConn.bindQueue(queue.queue, exchange, key, queue);
 
     return [newConn, queue];
 }
@@ -73,22 +93,46 @@ export async function subscribeJSON<T>(
     queueType: SimpleQueueType,
     handler: (data: T) => Promise<AckType> | AckType,
 ): Promise<void> {
-    const [channel, queue] = await declareAndBind(conn, exchange, queueName, key, queueType);
+    return subscribe(conn, exchange, queueName, key, queueType, handler, (message: Buffer) => {
+        return JSON.parse(message.toString());
+    })
+}
+
+export async function subscribeMsgPack<T>(
+    conn: amqp.ChannelModel,
+    exchange: string,
+    queueName: string,
+    key: string,
+    queueType: SimpleQueueType,
+    handler: (data: T) => Promise<AckType> | AckType,
+): Promise<void> {
+    return subscribe(conn, exchange, queueName, key, queueType, handler, (message: Buffer) => {
+        return decode(message) as T;
+    });
+}
+
+export async function subscribe<T>(
+    conn: amqp.ChannelModel,
+    exchange: string,
+    queueName: string,
+    routingKey: string,
+    simpleQueueType: SimpleQueueType,
+    handler: (data: T) => Promise<AckType> | AckType,
+    deserializer: (data: Buffer) => T,
+): Promise<void> {
+    const [channel, queue] = await declareAndBind(conn, exchange, queueName, routingKey, simpleQueueType);
     channel.consume(queue.queue, async (message) => {
         if(!message) return;
-        const parseMessage = JSON.parse(message.content.toString());
+        const parseMessage = deserializer(message.content);
         const ackType = await handler(parseMessage);
         switch(ackType){
             case AckType.Ack:
-                console.log("Message Acknowledge");
                 channel.ack(message);
                 break;
             case AckType.NackRequeue:
-                console.log("Message Not Acknowledge; Requeueing");
                 channel.nack(message, false, true);
                 break;
             case AckType.NackDiscard:
-                console.log("Message Not Acknowledge; Discarding");
                 channel.nack(message, false, false);
                 break;
         }

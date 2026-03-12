@@ -1,7 +1,9 @@
 import amqp from "amqplib";
-import { declareAndBind, publishJSON, SimpleQueueType } from "../internal/pubsub/pubsub.js";
+import { AckType, publishJSON, SimpleQueueType, subscribeMsgPack } from "../internal/pubsub/pubsub.js";
 import { ExchangePerilDirect, ExchangePerilTopic, GameLogSlug, PauseKey } from "../internal/routing/routing.js";
 import { getInput, printServerHelp } from "../internal/gamelogic/gamelogic.js";
+// import { handlerLogs } from "../client/handlers.js";
+import { writeLog, type GameLog } from "../internal/gamelogic/logs.js";
 
 async function main() {
   console.log("Starting Peril server...");
@@ -13,7 +15,16 @@ async function main() {
   printServerHelp();
   const confirm = await conn.createConfirmChannel();
 
-  await declareAndBind(conn, ExchangePerilTopic, "game_logs", GameLogSlug, SimpleQueueType.Durable);
+  await subscribeMsgPack(conn, ExchangePerilTopic, `${GameLogSlug}`, `${GameLogSlug}.*`, SimpleQueueType.Durable, async (gl: GameLog) => {
+    try {
+            await writeLog(gl);
+            process.stdout.write("> ");
+            return AckType.Ack;
+        } catch(err) {
+            console.log("Error writing log");
+            return AckType.NackRequeue;
+        }
+  });
 
   while(true){
     const input = await getInput();
@@ -28,7 +39,7 @@ async function main() {
         console.log("Ending game...");
         console.log("\nExit signal detected.\nShutting down server...");
         try {
-          conn.close();
+          await conn.close();
         } catch(err){
           console.log((err as Error).message);
           process.exit(1);

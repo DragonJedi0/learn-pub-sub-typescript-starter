@@ -2,10 +2,12 @@ import type { ArmyMove, RecognitionOfWar } from "../internal/gamelogic/gamedata.
 import type { GameState, PlayingState } from "../internal/gamelogic/gamestate.js";
 import { handleMove, MoveOutcome } from "../internal/gamelogic/move.js";
 import { handlePause } from "../internal/gamelogic/pause.js";
-import { AckType, publishJSON } from "../internal/pubsub/pubsub.js";
+import { AckType, publishJSON, publishMsgPack } from "../internal/pubsub/pubsub.js";
 import { type ConfirmChannel } from "amqplib";
 import { ExchangePerilTopic, WarRecognitionsPrefix } from "../internal/routing/routing.js";
 import { handleWar, WarOutcome } from "../internal/gamelogic/war.js";
+import { publishGameLog } from "./index.js";
+import { writeLog, type GameLog } from "../internal/gamelogic/logs.js";
 
 export function handlerPause(gs: GameState): (ps: PlayingState) => AckType {
     return (ps: PlayingState) => {
@@ -27,16 +29,21 @@ export function handlerMove(gs: GameState, ch: ConfirmChannel): (move: ArmyMove)
                 attacker: move.player,
                 defender: gs.getPlayerSnap(),
             };
-            await publishJSON(ch, ExchangePerilTopic, `${WarRecognitionsPrefix}.${username}`, rw);
-            return AckType.NackRequeue;
+            try {
+                await publishJSON(ch, ExchangePerilTopic, `${WarRecognitionsPrefix}.${username}`, rw);
+                return AckType.Ack;
+            } catch {
+                return AckType.NackRequeue;
+            }
         }
         return AckType.NackDiscard;
     }
 }
 
-export function handlerWar(gs: GameState): (war: RecognitionOfWar) => Promise<AckType> {
+export function handlerWar(gs: GameState, ch: ConfirmChannel): (war: RecognitionOfWar) => Promise<AckType> {
     return async (war) =>{
         const outcome = handleWar(gs, war);
+        const username = war.attacker.username;
         process.stdout.write("> ");
         switch(outcome.result){
             case WarOutcome.NotInvolved:
@@ -44,14 +51,43 @@ export function handlerWar(gs: GameState): (war: RecognitionOfWar) => Promise<Ac
             case WarOutcome.NoUnits:
                 return AckType.NackDiscard;
             case WarOutcome.OpponentWon:
+                try {
+                    await publishGameLog(ch, username, `${outcome.winner} won a war against ${outcome.loser}`);
+                } catch(err){
+                    console.log(new Error("Unable to log war resolution"));
+                    return AckType.NackRequeue;
+                }
                 return AckType.Ack;
             case WarOutcome.YouWon:
+                try {
+                    await publishGameLog(ch, username, `${outcome.winner} won a war against ${outcome.loser}`);
+                } catch(err){
+                    console.log(new Error("Unable to log war resolution"));
+                    return AckType.NackRequeue;
+                }
                 return AckType.Ack;
             case WarOutcome.Draw:
+                try {
+                    await publishGameLog(ch, username, `A war between ${username} and ${war.defender.username} resulted in a draw`);
+                } catch(err){
+                    console.log(new Error("Unable to log war resolution"));
+                    return AckType.NackRequeue;
+                }
                 return AckType.Ack;
             default:
                 console.log("An Error occured");
                 return AckType.NackDiscard;
         }
+    }
+}
+
+export async function handlerLogs(gl: GameLog){
+    try {
+        await writeLog(gl);
+        process.stdout.write("> ");
+        return AckType.Ack;
+    } catch(err) {
+        console.log("Error writing log");
+        return AckType.NackRequeue;
     }
 }
