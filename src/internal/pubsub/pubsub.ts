@@ -121,7 +121,7 @@ export async function subscribe<T>(
     deserializer: (data: Buffer) => T,
 ): Promise<void> {
     const [channel, queue] = await declareAndBind(conn, exchange, queueName, routingKey, simpleQueueType);
-    await channel.prefetch(1);
+    await channel.prefetch(10);
     channel.consume(queue.queue, async (message) => {
         if(!message) return;
         const parseMessage = deserializer(message.content);
