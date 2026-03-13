@@ -11,8 +11,6 @@ async function main() {
 
   const conn = await amqp.connect(rabbitUrl);
   console.log("Connection successful.");
-
-  printServerHelp();
   const confirm = await conn.createConfirmChannel();
 
   await subscribeMsgPack(conn, ExchangePerilTopic, `${GameLogSlug}`, `${GameLogSlug}.*`, SimpleQueueType.Durable, async (gl: GameLog) => {
@@ -21,10 +19,17 @@ async function main() {
             process.stdout.write("> ");
             return AckType.Ack;
         } catch(err) {
-            console.log("Error writing log");
+            console.log("Error writing log: ", err);
             return AckType.NackRequeue;
         }
   });
+
+  if(!process.stdin.isTTY){
+    console.log("Non-interactive mode: skipping command input.");
+    return;
+  }
+
+  printServerHelp();
 
   while(true){
     const input = await getInput();

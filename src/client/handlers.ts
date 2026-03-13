@@ -80,14 +80,3 @@ export function handlerWar(gs: GameState, ch: ConfirmChannel): (war: Recognition
         }
     }
 }
-
-export async function handlerLogs(gl: GameLog){
-    try {
-        await writeLog(gl);
-        process.stdout.write("> ");
-        return AckType.Ack;
-    } catch(err) {
-        console.log("Error writing log");
-        return AckType.NackRequeue;
-    }
-}

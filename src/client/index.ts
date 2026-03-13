@@ -1,5 +1,5 @@
 import amqp from "amqplib";
-import { clientWelcome, commandStatus, getInput, printClientHelp, printQuit } from "../internal/gamelogic/gamelogic.js";
+import { clientWelcome, commandStatus, getInput, getMaliciousLog, printClientHelp, printQuit } from "../internal/gamelogic/gamelogic.js";
 import { publishJSON, publishMsgPack, SimpleQueueType, subscribeJSON, subscribeMsgPack } from "../internal/pubsub/pubsub.js";
 import { ArmyMovesPrefix, ExchangePerilDirect, ExchangePerilTopic, GameLogSlug, PauseKey, WarRecognitionsPrefix } from "../internal/routing/routing.js";
 import { GameState } from "../internal/gamelogic/gamestate.js";
@@ -49,7 +49,26 @@ async function main() {
       } else if (input[0] == "help"){
         printClientHelp();
       } else if (input[0] == "spam"){
-        console.log("Spamming not alllowed!");
+        if(input.length !== 2) continue;
+        try {
+          const num = Number(input[1]);
+          for(let i = 0; i < num; i++){
+            const log: GameLog = {
+              currentTime: new Date(),
+              message: getMaliciousLog(),
+              username: username,
+            };
+            await publishMsgPack(confirmChannel, ExchangePerilTopic, `${GameLogSlug}.${username}`, log);
+          }
+        } catch(err) {
+          if(err instanceof TypeError){
+            console.log("Input does not contain a number");
+            process.stdout.write("> ");
+          } else {
+            console.log("An Error occured: ", err);
+            process.stdout.write("> ");
+          }
+        }
       } else if (input[0] == "quit"){
         printQuit();
         process.exit(0);
